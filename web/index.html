@@ -505,12 +505,12 @@
       messagesEl.innerHTML = '<div class="date-chip">Today</div>';
       lastStepStatuses = {};
       renderProgress(data.progress);
-      const transcript = data.transcript || [];
-      if (transcript.length === 0) {
-        addMessage(STATIC_GREETING, 'bot');
-      } else {
-        transcript.forEach(entry => addMessage(entry.text, entry.sender));
-      }
+      // Always shown first, same as a fresh session - it's decorative
+      // chrome, never persisted server-side (see STATIC_GREETING above),
+      // so without this it would only ever appear once and then vanish
+      // on every later refresh.
+      addMessage(STATIC_GREETING, 'bot');
+      (data.transcript || []).forEach(entry => addMessage(entry.text, entry.sender));
       return true;
     } catch (err) {
       return false;

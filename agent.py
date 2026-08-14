@@ -68,6 +68,30 @@ _BARE_ACKNOWLEDGMENT_WORDS = {
     "please", "what", "why", "how", "wait", "hmm", "um", "uh", "idk", "maybe",
 }
 
+# Bare replies that confirm a candidate name proposed in
+# _handle_identity's pending_name_candidate step - deliberately a small,
+# fixed set of unambiguous confirmations, not open-ended "does this sound
+# affirmative" guessing.
+_AFFIRMATIVE_WORDS = {
+    "yes", "yeah", "yep", "yup", "correct", "right", "confirmed", "sure",
+    "that's right", "thats right", "that is right",
+}
+
+
+def _dedupe_adjacent_words(name: str) -> str:
+    """Collapses an immediately-repeated word, e.g. "Nithin Nithin Jain"
+    -> "Nithin Jain". A genuine name essentially never repeats a word back
+    to back - this is the one signal that reliably identifies a
+    self-correction/restart ("it's Nithin... Nithin Jain") regardless of
+    how it was extracted (LLM or regex) or punctuated, so it's applied
+    once here rather than guessing at every phrasing in extractor.py."""
+    words = name.split()
+    deduped = []
+    for word in words:
+        if not deduped or word.lower() != deduped[-1].lower():
+            deduped.append(word)
+    return " ".join(deduped)
+
 
 class Agent:
     def __init__(self):
@@ -202,7 +226,7 @@ class Agent:
             message = self._handle_account_id(extracted, user_input)
 
         if message is None and session.state == ConversationState.AWAIT_IDENTITY:
-            message = self._handle_identity()
+            message = self._handle_identity(extracted, user_input)
             if message is not None and session.action_log and session.action_log[-1] == "verify_identity:failed":
                 tone_hints.append(
                     "This is a verification failure - be empathetic and reassuring in tone, without "
@@ -451,11 +475,37 @@ class Agent:
     # Step 2: identity verification (deterministic - no LLM involved)
     # ------------------------------------------------------------------
 
-    def _handle_identity(self) -> Optional[str]:
+    def _handle_identity(self, extracted: ExtractedFields, user_input: str) -> Optional[str]:
         session = self.session
 
+        # A previously-proposed candidate is waiting on this turn's reply.
+        # If nothing new was extracted as a name, it's either a plain
+        # confirmation ("yes") or an unrelated reply - never guess between
+        # the two, ask again rather than silently assuming agreement. If a
+        # new name *was* extracted, the user restated instead of
+        # confirming - drop the stale candidate and let it flow through
+        # the normal checks below (including the repetition check again).
+        if session.pending_name_candidate is not None:
+            if session.claimed_full_name is None:
+                bare = user_input.strip().lower().rstrip("!.?,;: ")
+                if bare in _AFFIRMATIVE_WORDS:
+                    session.claimed_full_name = session.pending_name_candidate
+                else:
+                    return f"Sorry, just to confirm - is your full name {session.pending_name_candidate}?"
+            session.pending_name_candidate = None
+
         if session.claimed_full_name is None:
-            return "Got it. Could you please confirm your full name?"
+            return "Thanks! Could you please confirm your full name as it appears on the account?"
+
+        # A name with an immediately-repeated word is a self-correction,
+        # not a genuine name (see _dedupe_adjacent_words) - don't silently
+        # store or verify against the garbled version, confirm the
+        # cleaned-up candidate first.
+        deduped_name = _dedupe_adjacent_words(session.claimed_full_name)
+        if deduped_name != session.claimed_full_name:
+            session.pending_name_candidate = deduped_name
+            session.claimed_full_name = None
+            return f"Just to make sure I have it right - is your full name {deduped_name}?"
 
         # A single-word claim would just burn a retry against a two-word
         # account name - nudge once for the full name, then accept

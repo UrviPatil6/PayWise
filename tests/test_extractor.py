@@ -71,6 +71,18 @@ def test_full_name_its_prefix_strips_the_filler_word():
     assert extract_fields("it's Nithin, Nithin Jain", IDENTITY).full_name == "Nithin Jain"
 
 
+def test_full_name_its_prefix_restated_without_a_comma_is_returned_raw():
+    # "Its Nithin Nithin Jain" (comma dropped while restating a name) is
+    # deliberately NOT special-cased here - extractor.py returns it raw,
+    # repeated word and all. Guessing every unpunctuated phrasing of a
+    # restart is exactly the kind of growing, phrasing-specific regex
+    # this file shouldn't accumulate. Cleaning this up is agent.py's job
+    # (see test_agent.py's garbled-name tests) via a normalize-and-confirm
+    # step that runs once, centrally, on any extracted name regardless of
+    # source (LLM or regex) or how it was phrased.
+    assert extract_fields("Its Nithin Nithin Jain", IDENTITY).full_name == "Nithin Nithin Jain"
+
+
 def test_full_name_single_word_reply():
     # Regression test: a single-word reply ("urvi") used to be silently
     # dropped (the fallback required 2+ words), which meant the agent

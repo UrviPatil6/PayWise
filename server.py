@@ -19,6 +19,8 @@ conversations, same as the CLI losing state when the process exits.
 """
 
 import os
+import threading
+import time
 import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -34,6 +36,30 @@ app = Flask(__name__, static_folder="web", static_url_path="")
 # the assignment's own model where an Agent() is one conversation's worth
 # of state and nothing more.
 sessions: dict[str, Agent] = {}
+
+# Retry limits (MAX_ACCOUNT_LOOKUP_ATTEMPTS, MAX_VERIFICATION_ATTEMPTS) live
+# on the Agent/Session, so they reset for free every time a new session is
+# created - unlimited POST /api/session calls would make those limits
+# meaningless. A per-IP sliding window is a coarse defense (request.
+# remote_addr is the proxy's IP on Render unless ProxyFix is configured -
+# a known limitation, not a real per-client guarantee), but it's enough to
+# stop trivial scripted brute-forcing without adding a dependency.
+_SESSION_CREATION_WINDOW_SECONDS = 300
+_SESSION_CREATION_LIMIT = 10
+_session_creation_log: dict[str, list] = {}
+_session_creation_lock = threading.Lock()
+
+
+def _session_creation_allowed(client_ip: str) -> bool:
+    now = time.time()
+    with _session_creation_lock:
+        recent = [t for t in _session_creation_log.get(client_ip, []) if now - t < _SESSION_CREATION_WINDOW_SECONDS]
+        if len(recent) >= _SESSION_CREATION_LIMIT:
+            _session_creation_log[client_ip] = recent
+            return False
+        recent.append(now)
+        _session_creation_log[client_ip] = recent
+        return True
 
 # session_id -> [{"sender": "user"|"bot", "text": str}, ...]. Separate from
 # Agent/Session on purpose: Session holds business state (what's been
@@ -125,6 +151,8 @@ def index():
 
 @app.post("/api/session")
 def new_session():
+    if not _session_creation_allowed(request.remote_addr or "unknown"):
+        return jsonify({"error": "Too many new conversations from this connection - please wait a few minutes and try again."}), 429
     session_id = uuid.uuid4().hex
     agent = Agent()
     sessions[session_id] = agent
@@ -166,7 +194,16 @@ def chat():
 
     transcript = transcripts.setdefault(session_id, [])
     if user_input.strip():
-        transcript.append({"sender": "user", "text": user_input})
+        # AWAIT_CARD_DETAILS messages can contain a real card number and
+        # CVV typed as plain chat text - never persist that verbatim, even
+        # in this display-only transcript. Same rule agent._extract already
+        # applies to keep raw card data out of the LLM path, extended here
+        # to keep it out of this second in-memory store too (see
+        # FINDINGS.md's card-data-clearing findings for why this class of
+        # data gets this treatment and DOB/Aadhaar/pincode don't).
+        is_card_details_turn = agent.session.state == ConversationState.AWAIT_CARD_DETAILS
+        display_text = "[card details submitted]" if is_card_details_turn else user_input
+        transcript.append({"sender": "user", "text": display_text})
 
     result = agent.next(user_input)
     transcript.append({"sender": "bot", "text": result["message"]})

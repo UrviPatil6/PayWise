@@ -177,13 +177,19 @@ def _extract_full_name(text: str, state: ConversationState) -> Optional[str]:
     # "it's Nithin, Nithin Jain" - nickname then full name after a comma.
     # Tried before the plain "it's X" pattern below, or that pattern would
     # only ever capture "Nithin" here and never reach the fuller name.
+    # Deliberately not extended to guess the same thing without a comma
+    # ("its Nithin Nithin Jain") - that's exactly the kind of phrasing-
+    # specific regex this file shouldn't keep accumulating. The general
+    # case (any extracted name with a repeated word, regardless of source
+    # or punctuation) is instead caught once, centrally, by
+    # agent._handle_identity's normalize-and-confirm step.
     match = re.search(r"it'?s\s+[A-Za-z]+,\s*([A-Za-z][A-Za-z .'\-]*)", text, re.IGNORECASE)
     if match:
         return _clean_name(match.group(1))
 
     # "it's Nithin" / "its Nithin" - the same name-introduction phrase as
     # "i'm"/"i am" above, just not recognized there since "it's" is also
-    # the prefix of the nickname-comma pattern just above, which has to
+    # the prefix of the restated-name pattern just above, which has to
     # run first. Regression: this used to fall through to the bare-reply
     # fallback below and get extracted as "its Nithin" literally, filler
     # word included, which could never match a real account name.

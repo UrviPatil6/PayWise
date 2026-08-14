@@ -67,6 +67,53 @@ def test_multiple_fields_in_one_message_cascades_through_states(mock_lookup):
     assert agent.session.state == ConversationState.AWAIT_CARD_DETAILS
 
 
+def test_garbled_self_correction_name_is_confirmed_not_silently_stored(mock_lookup):
+    # Regression test for a live bug: "Its Nithin Nithin Jain" (a user
+    # restating their name without a comma - "it's Nithin... Nithin
+    # Jain") got the literal, repeated-word text stored as the claimed
+    # name. That never matches the real account name ("Nithin Jain"), so
+    # verification failed even though the user had, in substance, given
+    # the right name. The fix is a normalize-and-confirm step in
+    # _handle_identity, not more extractor.py regex - see
+    # _dedupe_adjacent_words.
+    agent = Agent()
+    agent.next("ACC1001")
+
+    r = agent.next("Its Nithin Nithin Jain")
+    assert "Nithin Jain" in r["message"]
+    assert "?" in r["message"]  # asked for confirmation, not accepted outright
+    assert agent.session.claimed_full_name is None  # not stored yet
+    assert agent.session.pending_name_candidate == "Nithin Jain"
+
+    # A DOB given while the name confirmation is still pending must still
+    # be captured - it shouldn't be lost, and verification must not fail
+    # merely because the name hasn't been confirmed yet.
+    r = agent.next("its 14th may 1990")
+    assert agent.session.claimed_dob == "1990-05-14"
+    assert agent.session.verified is False
+    assert "Nithin Jain" in r["message"]  # still waiting on confirmation
+
+    r = agent.next("yes")
+    assert agent.session.claimed_full_name == "Nithin Jain"
+    assert agent.session.pending_name_candidate is None
+    assert agent.session.verified is True
+    assert "verified" in r["message"].lower()
+
+
+def test_garbled_name_confirmation_declined_uses_the_restated_name(mock_lookup):
+    # If the user doesn't confirm but instead gives a different name
+    # outright, that should replace the pending candidate rather than
+    # being ignored or merged with it.
+    agent = Agent()
+    agent.next("ACC1001")
+    agent.next("Its Nithin Nithin Jain")  # proposes "Nithin Jain"
+
+    r = agent.next("Rajarajeswari Balasubramaniam")
+    assert agent.session.pending_name_candidate is None
+    assert agent.session.claimed_full_name == "Rajarajeswari Balasubramaniam"
+    assert "verify" in r["message"].lower() or "date of birth" in r["message"].lower()
+
+
 def test_payment_details_volunteered_early_are_not_used_before_verification(mock_lookup, monkeypatch):
     payment_calls = []
     monkeypatch.setattr(
@@ -98,7 +145,7 @@ def test_single_word_name_replies_make_progress_without_looping(mock_lookup):
     agent = Agent()
     agent.next("ACC1001")
     r1 = agent.next("urvi")
-    assert r1["message"] != "Got it. Could you please confirm your full name?"
+    assert r1["message"] != "Thanks! Could you please confirm your full name as it appears on the account?"
     r2 = agent.next("nithin")
     assert "confirm your full name" not in r2["message"].lower()
     agent.next("Nithin Jain")

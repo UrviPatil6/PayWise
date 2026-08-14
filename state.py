@@ -66,6 +66,13 @@ class Session:
     # agent._handle_identity.
     name_clarification_asked: bool = False
 
+    # Set when an extracted full name looks like a self-correction rather
+    # than a genuine name (e.g. "Nithin Nithin Jain" - see
+    # agent._dedupe_adjacent_words) - claimed_full_name is cleared and this
+    # holds the cleaned-up candidate until the next turn either confirms
+    # it (a bare "yes") or replaces it with a fresh claim.
+    pending_name_candidate: Optional[str] = None
+
     payment_amount: Optional[Decimal] = None
 
     # The most recent amount the user gave, whether or not it was accepted

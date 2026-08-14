@@ -74,6 +74,19 @@ print(agent.next("My account ID is ACC1001")["message"])
 
 No API key or account setup needed — the payment-verification API is unauthenticated, and without `GROQ_API_KEY` the agent runs fully on the deterministic path.
 
+### Test accounts
+
+From the assignment's sample data, live on the real account-lookup API — no setup required, just use these to verify end to end:
+
+| Account ID | Full name | DOB | Aadhaar last 4 | Pincode | Balance |
+|---|---|---|---|---|---|
+| `ACC1001` | Nithin Jain | `1990-05-14` | `4321` | `400001` | ₹1,250.75 |
+| `ACC1002` | Rajarajeswari Balasubramaniam | `1985-11-23` | `9876` | `400002` | ₹540.00 |
+| `ACC1003` | Priya Agarwal | `1992-08-10` | `2468` | `400003` | ₹0.00 (tests the zero-balance / "nothing to pay" path) |
+| `ACC1004` | Rahul Mehta | `1988-02-29` | `1357` | `400004` | ₹3,200.50 (leap-year DOB — see the edge-case example below) |
+
+Full name **and** at least one of DOB / Aadhaar last-4 / pincode are required to verify — any one of the three works. For card details, any [Luhn-valid](https://en.wikipedia.org/wiki/Luhn_algorithm) card number with a future expiry and a 3-4 digit CVV is accepted (e.g. `4532015112830366`, expiry `12/27`, CVV `123`); the API doesn't check the number against a real card network.
+
 A minimal browser chat UI is also included:
 
 ```bash
