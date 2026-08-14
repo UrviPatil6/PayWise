@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+evals/results.json
+*.egg-info/
+.vscode/
+.idea/
+*.zip

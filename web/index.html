@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment Collection Agent</title>
+<style>
+  :root{
+    --green-900:#065f36;
+    --green-700:#0f8a4f;
+    --green-600:#14a05e;
+    --green-500:#1ab86e;
+    --green-100:#e6f6ee;
+    --green-50:#f2faf6;
+    --ink-900:#101418;
+    --ink-600:#5b6570;
+    --ink-400:#8a929b;
+    --line:#e7ebe8;
+    --bg:#f6f8f7;
+    --panel:#ffffff;
+    --amber-bg:#fff8ec;
+    --amber-border:#f2d99b;
+    --amber-ink:#b5790a;
+    --amber-icon-bg:#fbedcb;
+    --red-bg:#fdecec;
+    --red-border:#f3b9b9;
+    --red-ink:#b42323;
+    --red-icon-bg:#fbdada;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--panel);
+    color:var(--ink-900);
+    overflow:hidden;
+  }
+
+  .app{
+    width:100vw;
+    height:100vh;
+    background:var(--panel);
+    display:grid;
+    grid-template-columns:340px 1fr;
+    overflow:hidden;
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    background:var(--green-50);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    padding:22px 20px;
+    overflow-y:auto;
+    min-height:0;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:22px;
+  }
+  .brand-icon{
+    width:44px;height:44px;border-radius:12px;
+    background:linear-gradient(135deg,var(--green-500),var(--green-900));
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .brand-icon svg{width:22px;height:22px;stroke:#fff;}
+  .brand-title{font-size:16px;font-weight:700;color:var(--ink-900);line-height:1.2;}
+  .brand-sub{font-size:12.5px;color:var(--ink-600);margin-top:2px;}
+
+  .new-convo{
+    width:100%;
+    padding:12px 16px;
+    border:none;
+    border-radius:12px;
+    background:linear-gradient(135deg,var(--green-700),var(--green-900));
+    color:#fff;
+    font-weight:600;
+    font-size:14.5px;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    box-shadow:0 6px 16px rgba(6,95,54,0.25);
+    transition:transform .15s ease, box-shadow .15s ease;
+    margin-bottom:22px;
+  }
+  .new-convo:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(6,95,54,0.32);}
+  .new-convo svg{width:15px;height:15px;stroke:#fff;}
+
+  .section-label{
+    font-size:12px;
+    font-weight:700;
+    color:var(--ink-400);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin:4px 0 10px 4px;
+  }
+
+  /* ---------- Collection progress ---------- */
+  .step-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+  .step-card{
+    display:flex;gap:10px;align-items:flex-start;
+    padding:11px 12px;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:#fff;
+    transition:background .25s ease, border-color .25s ease, opacity .25s ease;
+  }
+  .step-card.status-pending{opacity:.65;}
+  .step-card.status-active{background:var(--amber-bg);border-color:var(--amber-border);}
+  .step-card.status-done{background:var(--green-100);border-color:#bfe8cf;}
+  .step-card.status-failed{background:var(--red-bg);border-color:var(--red-border);}
+
+  .step-icon{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;margin-top:1px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .step-icon svg{width:14px;height:14px;}
+  .step-icon.status-pending{background:#eef1ef;color:var(--ink-400);}
+  .step-icon.status-active{background:var(--amber-icon-bg);color:var(--amber-ink);}
+  .step-icon.status-done{background:var(--green-100);color:var(--green-700);}
+  .step-icon.status-failed{background:var(--red-icon-bg);color:var(--red-ink);}
+
+  .step-spinner{
+    width:11px;height:11px;border-radius:50%;
+    border:2px solid var(--amber-border);
+    border-top-color:var(--amber-ink);
+    animation:step-spin .7s linear infinite;
+  }
+  @keyframes step-spin{to{transform:rotate(360deg);}}
+
+  .step-title{font-size:13px;font-weight:700;color:var(--ink-900);line-height:1.3;}
+  .step-detail{font-size:11.5px;color:var(--ink-600);margin-top:2px;line-height:1.35;}
+
+  @keyframes step-pop{
+    0%{transform:scale(.92);opacity:0;}
+    60%{transform:scale(1.02);}
+    100%{transform:scale(1);opacity:1;}
+  }
+  .step-card.just-completed{animation:step-pop .45s cubic-bezier(.2,.8,.3,1.2);}
+
+  .sidebar-spacer{flex:1;}
+
+  .info-card{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:14px;
+    display:flex;gap:12px;align-items:flex-start;
+    margin-top:14px;
+  }
+  .info-card h4{margin:0 0 3px;font-size:13.5px;font-weight:700;color:var(--ink-900);}
+  .info-card p{margin:0;font-size:12px;color:var(--ink-600);line-height:1.4;}
+  .info-card .icon-wrap{
+    width:38px;height:38px;border-radius:10px;background:var(--green-100);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--green-700);
+  }
+  .info-card .icon-wrap svg{width:18px;height:18px;}
+
+  .footer-note{
+    font-size:11.5px;color:var(--ink-400);
+    margin-top:18px;line-height:1.5;
+  }
+
+  /* ---------- Chat panel ---------- */
+  .chat{
+    display:flex;
+    flex-direction:column;
+    background:#fbfcfb;
+    min-width:0;
+    min-height:0;
+  }
+  .chat-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:20px 28px;
+    border-bottom:1px solid var(--line);
+    background:#fff;
+  }
+  .chat-header h2{margin:0;font-size:18px;font-weight:700;}
+  .chat-header p{margin:3px 0 0;font-size:12.5px;color:var(--ink-600);}
+  .header-right{display:flex;align-items:center;gap:12px;}
+  .pill{
+    display:flex;align-items:center;gap:6px;
+    padding:8px 14px;border-radius:999px;
+    background:var(--green-100);color:var(--green-900);
+    font-size:12.5px;font-weight:600;
+  }
+  .pill svg{width:13px;height:13px;}
+  .status{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--green-700);}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--green-600);box-shadow:0 0 0 3px rgba(20,160,94,0.18);}
+
+  .messages{
+    flex:1;
+    min-height:0;
+    overflow-y:auto;
+    padding:26px 28px;
+    display:flex;flex-direction:column;gap:18px;
+  }
+  .date-chip{
+    align-self:center;
+    background:#eef1ef;color:var(--ink-600);
+    font-size:12px;font-weight:600;
+    padding:6px 14px;border-radius:999px;
+    margin-bottom:6px;
+  }
+  .row{display:flex;align-items:flex-end;gap:10px;max-width:72%;}
+  .row.bot{align-self:flex-start;}
+  .row.user{align-self:flex-end;flex-direction:row-reverse;}
+
+  .avatar{
+    width:36px;height:36px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .avatar.bot{background:var(--green-100);color:var(--green-700);}
+  .avatar.user{background:var(--green-100);color:var(--green-700);}
+  .avatar svg{width:18px;height:18px;}
+
+  .bubble-wrap{display:flex;flex-direction:column;gap:4px;}
+  .row.user .bubble-wrap{align-items:flex-end;}
+
+  .bubble{
+    padding:13px 18px;
+    border-radius:16px;
+    font-size:14.5px;
+    line-height:1.5;
+    white-space:pre-wrap;
+  }
+  .bot .bubble{
+    background:#eef1ef;
+    color:var(--ink-900);
+    border-bottom-left-radius:4px;
+  }
+  .user .bubble{
+    background:linear-gradient(135deg,var(--green-700),var(--green-900));
+    color:#fff;
+    border-bottom-right-radius:4px;
+  }
+  .meta{
+    font-size:11.5px;color:var(--ink-400);
+    padding:0 4px;
+    display:flex;align-items:center;gap:4px;
+  }
+  .meta svg{width:12px;height:12px;color:var(--green-600);}
+
+  .typing-bubble{display:flex;gap:4px;align-items:center;padding:15px 18px;}
+  .typing-dot{width:6px;height:6px;border-radius:50%;background:var(--ink-400);animation:typing-bounce 1.2s infinite ease-in-out;}
+  .typing-dot:nth-child(2){animation-delay:.15s;}
+  .typing-dot:nth-child(3){animation-delay:.3s;}
+  @keyframes typing-bounce{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-4px);opacity:1;}}
+
+  .composer{
+    padding:18px 28px 22px;
+    background:#fff;
+    border-top:1px solid var(--line);
+  }
+  .composer-inner{
+    display:flex;align-items:center;gap:12px;
+    background:var(--green-50);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:8px 10px 8px 16px;
+  }
+  .composer-inner input{
+    flex:1;border:none;background:transparent;outline:none;
+    font-size:14.5px;color:var(--ink-900);
+    font-family:inherit;
+  }
+  .composer-inner input::placeholder{color:var(--ink-400);}
+  .composer-inner input:disabled{opacity:.6;}
+  .hint{font-size:12px;color:var(--ink-400);white-space:nowrap;}
+  .send-btn{
+    width:42px;height:42px;border-radius:50%;
+    background:linear-gradient(135deg,var(--green-600),var(--green-900));
+    border:none;color:#fff;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    box-shadow:0 6px 14px rgba(6,95,54,0.28);
+    transition:transform .15s ease, opacity .15s ease;
+  }
+  .send-btn:hover{transform:scale(1.05);}
+  .send-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+
+  /* scrollbars */
+  .messages::-webkit-scrollbar, .sidebar::-webkit-scrollbar{width:6px;}
+  .messages::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb{
+    background:#d7e0da;border-radius:8px;
+  }
+
+  @media (max-width:860px){
+    .app{grid-template-columns:1fr;height:96vh;}
+    .sidebar{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+      </div>
+      <div>
+        <div class="brand-title">Payment Collection Agent</div>
+        <div class="brand-sub">Secure &bull; Reliable &bull; Always Here</div>
+      </div>
+    </div>
+
+    <button class="new-convo" id="newConvoBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      New Conversation
+    </button>
+
+    <div class="section-label">Collection Progress</div>
+    <div class="step-list" id="stepList"></div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="info-card">
+      <div class="icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+      </div>
+      <div>
+        <h4>Test accounts</h4>
+        <p>Try ACC1001&ndash;ACC1004 (see README for details).</p>
+      </div>
+    </div>
+
+    <div class="info-card">
+      <div class="icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      </div>
+      <div>
+        <h4>Your data is secure</h4>
+        <p>Demo UI &mdash; test card data only. Nothing is stored beyond this session.</p>
+      </div>
+    </div>
+
+    <div class="footer-note">Payment Collection Agent &mdash; demo UI</div>
+  </aside>
+
+  <!-- ============ CHAT PANEL ============ -->
+  <section class="chat">
+    <div class="chat-header">
+      <div>
+        <h2>Payment Collection Agent</h2>
+        <p>Demo UI &bull; test card data only</p>
+      </div>
+      <div class="header-right">
+        <div class="pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          Secure Session
+        </div>
+        <div class="status"><span class="dot"></span>Online</div>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="date-chip">Today</div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <input type="text" id="msgInput" placeholder="Type a message..." autocomplete="off" />
+        <span class="hint">Press Enter to send</span>
+        <button class="send-btn" id="sendBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('msgInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const stepListEl = document.getElementById('stepList');
+
+  const botAvatarSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="12" rx="2"></rect><circle cx="8.5" cy="14" r="1.2" fill="currentColor" stroke="none"></circle><circle cx="15.5" cy="14" r="1.2" fill="currentColor" stroke="none"></circle><path d="M12 8V5"></path><circle cx="12" cy="4" r="1" fill="currentColor" stroke="none"></circle></svg>`;
+  const userAvatarSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+  const checkSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+  const xSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+  const dotSVG = `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"></circle></svg>`;
+
+  let sessionId = null;
+  let lastStepStatuses = {};
+
+  function stepIcon(status) {
+    if (status === 'done') return checkSVG;
+    if (status === 'failed') return xSVG;
+    if (status === 'active') return '<div class="step-spinner"></div>';
+    return dotSVG;
+  }
+
+  function renderProgress(steps) {
+    if (!steps) return;
+    stepListEl.innerHTML = steps.map(step => `
+      <div class="step-card status-${step.status}" data-key="${step.key}">
+        <div class="step-icon status-${step.status}">${stepIcon(step.status)}</div>
+        <div>
+          <div class="step-title">${step.title}</div>
+          <div class="step-detail">${step.detail}</div>
+        </div>
+      </div>`).join('');
+
+    // Pop-in animation only for steps that just transitioned to "done" -
+    // not on first render (nothing to compare against yet) and not on
+    // every re-render of an already-done step.
+    steps.forEach(step => {
+      const justCompleted = step.status === 'done' && lastStepStatuses[step.key] !== undefined && lastStepStatuses[step.key] !== 'done';
+      if (justCompleted) {
+        const card = stepListEl.querySelector(`[data-key="${step.key}"]`);
+        card.classList.add('just-completed');
+        card.addEventListener('animationend', () => card.classList.remove('just-completed'), { once: true });
+      }
+      lastStepStatuses[step.key] = step.status;
+    });
+  }
+
+  function timeNow() {
+    const d = new Date();
+    let h = d.getHours();
+    const m = d.getMinutes().toString().padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m} ${ampm}`;
+  }
+
+  function addMessage(text, sender) {
+    const row = document.createElement('div');
+    row.className = `row ${sender}`;
+    row.innerHTML = `
+      <div class="avatar ${sender}">${sender === 'bot' ? botAvatarSVG : userAvatarSVG}</div>
+      <div class="bubble-wrap">
+        <div class="bubble"></div>
+        <div class="meta">${timeNow()}${sender === 'user' ? checkSVG : ''}</div>
+      </div>`;
+    row.querySelector('.bubble').textContent = text;
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function addTypingRow() {
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    row.id = 'typing-row';
+    row.innerHTML = `
+      <div class="avatar bot">${botAvatarSVG}</div>
+      <div class="bubble-wrap">
+        <div class="bubble typing-bubble">
+          <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+        </div>
+      </div>`;
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function removeTypingRow() {
+    document.getElementById('typing-row')?.remove();
+  }
+
+  function setBusy(busy) {
+    inputEl.disabled = busy;
+    sendBtn.disabled = busy;
+  }
+
+  async function startSession() {
+    messagesEl.innerHTML = '<div class="date-chip">Today</div>';
+    lastStepStatuses = {};
+    setBusy(true);
+    const res = await fetch('/api/session', { method: 'POST' });
+    const data = await res.json();
+    sessionId = data.session_id;
+    renderProgress(data.progress);
+    setBusy(false);
+    await sendToAgent('Hi');
+  }
+
+  async function sendToAgent(text) {
+    if (text.trim()) addMessage(text, 'user');
+    setBusy(true);
+    addTypingRow();
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, message: text }),
+      });
+      const data = await res.json();
+      removeTypingRow();
+      addMessage(data.message ?? 'Something went wrong - please try again.', 'bot');
+      renderProgress(data.progress);
+    } catch (err) {
+      removeTypingRow();
+      addMessage('Could not reach the server. Is server.py running?', 'bot');
+    }
+    setBusy(false);
+    inputEl.focus();
+  }
+
+  function handleSend() {
+    const text = inputEl.value.trim();
+    if (!text || inputEl.disabled) return;
+    inputEl.value = '';
+    sendToAgent(text);
+  }
+
+  sendBtn.addEventListener('click', handleSend);
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleSend();
+  });
+  document.getElementById('newConvoBtn').addEventListener('click', startSession);
+
+  startSession();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,5 @@
+requests>=2.31
+pydantic>=2.0
+pytest>=7.4
+openai>=1.40
+flask>=3.0
