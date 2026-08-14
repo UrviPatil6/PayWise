@@ -105,8 +105,8 @@ Manual setup instead, if you'd rather not use the Blueprint:
 
 1. **New + → Web Service** → connect this GitHub repo
 2. **Build command**: `pip install -r requirements.txt`
-3. **Start command**: `gunicorn server:app`
-4. Everything else is optional — see [Configuration](#configuration) below. Only set `GROQ_API_KEY` (or `LLM_API_KEY`, etc.) in Render's **Environment** tab if you want the LLM-phrased path; the deployed agent runs fully on its deterministic fallback without it.
+3. **Start command**: `gunicorn server:app --workers 1` — keep `--workers 1`; `sessions`/`transcripts` are in-process dicts, so a second worker would have its own separate copy and requests could land on either one.
+4. Everything else is optional — see [Configuration](#configuration) below. Only set `LLM_API_KEY` (+ `LLM_BASE_URL`/`LLM_MODEL`, e.g. OpenAI) in Render's **Environment** tab if you want the LLM-phrased path; the deployed agent runs fully on its deterministic fallback without it.
 
 Two things worth knowing before you rely on it: the free plan spins down after inactivity, and `sessions` (§ [Project layout](#project-layout)) is an in-process dict — either one clears every active conversation on restart, same as the CLI losing state when the process exits. Fine for a demo, not for anything that needs conversations to survive a redeploy.
 

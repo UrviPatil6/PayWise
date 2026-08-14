@@ -18,8 +18,32 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.0
       # Optional: enables LLM-based understanding + phrasing (see README
-      # "Configuration"). Left unset here (sync: false) so the value is
-      # entered once in the Render dashboard, never committed to the repo.
-      # The agent runs fully on its deterministic fallback without it.
-      - key: GROQ_API_KEY
+      # "Configuration"). All secrets below are sync: false so Render
+      # prompts for the value once in its dashboard - never committed to
+      # the repo. The agent runs fully on its deterministic fallback
+      # without any of this configured.
+      #
+      # Primary provider: OpenAI. Leave LLM_API_KEY blank at deploy time
+      # to skip the LLM path entirely; the non-secret settings below only
+      # matter once a key is actually set.
+      - key: LLM_API_KEY
         sync: false
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: LLM_USES_REASONING_EFFORT
+        value: "false"
+      # Fallback provider: Groq, tried only if the OpenAI call itself
+      # fails. Also optional - leave LLM_FALLBACK_API_KEY blank to run
+      # with a single provider (OpenAI) and no fallback.
+      - key: LLM_FALLBACK_API_KEY
+        sync: false
+      - key: LLM_FALLBACK_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_FALLBACK_MODEL
+        value: openai/gpt-oss-20b
+      - key: LLM_FALLBACK_USES_REASONING_EFFORT
+        value: "true"
+      - key: LLM_FALLBACK_SUPPORTS_FORCED_TOOL_CHOICE
+        value: "false"
