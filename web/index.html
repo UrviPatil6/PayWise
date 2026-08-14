@@ -471,6 +471,38 @@
     sendBtn.disabled = busy;
   }
 
+  async function init() {
+    const storedId = sessionStorage.getItem('sessionId');
+    if (storedId && await tryResumeSession(storedId)) return;
+    await startSession();
+  }
+
+  // Resumes an existing server-side Agent after a refresh, via the id
+  // cached in sessionStorage - never trusts a cached *progress* value,
+  // only the id, since progress has to reflect real server state (see
+  // GET /api/session/<id> in server.py for why). Returns false (and lets
+  // the caller fall back to startSession()) if the session is gone -
+  // server restarted, or the id was never valid - so a stale id can
+  // never get the user stuck looking at a session that doesn't exist.
+  async function tryResumeSession(id) {
+    try {
+      const res = await fetch(`/api/session/${id}`);
+      if (!res.ok) {
+        sessionStorage.removeItem('sessionId');
+        return false;
+      }
+      const data = await res.json();
+      sessionId = data.session_id;
+      messagesEl.innerHTML = '<div class="date-chip">Today</div>';
+      lastStepStatuses = {};
+      renderProgress(data.progress);
+      addMessage('Welcome back — continuing where you left off.', 'bot');
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   async function startSession() {
     messagesEl.innerHTML = '<div class="date-chip">Today</div>';
     lastStepStatuses = {};
@@ -478,6 +510,7 @@
     const res = await fetch('/api/session', { method: 'POST' });
     const data = await res.json();
     sessionId = data.session_id;
+    sessionStorage.setItem('sessionId', sessionId);
     renderProgress(data.progress);
     setBusy(false);
     await sendToAgent('Hi');
@@ -518,7 +551,7 @@
   });
   document.getElementById('newConvoBtn').addEventListener('click', startSession);
 
-  startSession();
+  init();
 </script>
 
 </body>

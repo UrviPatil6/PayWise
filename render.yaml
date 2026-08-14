@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: paywise
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # --workers 1, pinned explicitly rather than relying on gunicorn's
+    # (also 1, but unstated) default: server.py's `sessions` dict lives in
+    # process memory, so a second worker - or a second horizontally-scaled
+    # instance on a paid plan - would have its own separate copy, and a
+    # session created on one could get "unknown session_id" from another
+    # depending purely on which one a later request happened to land on.
+    # Real fix for real multi-instance use would be an external session
+    # store (Redis, etc.) - out of scope for this demo surface.
+    startCommand: gunicorn server:app --workers 1
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      # Optional: enables LLM-based understanding + phrasing (see README
+      # "Configuration"). Left unset here (sync: false) so the value is
+      # entered once in the Render dashboard, never committed to the repo.
+      # The agent runs fully on its deterministic fallback without it.
+      - key: GROQ_API_KEY
+        sync: false

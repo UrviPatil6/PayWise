@@ -9,8 +9,16 @@ One Agent instance per browser session, kept in memory only - same
 lifetime/scope tradeoff as the CLI (see README "Known limitations"), just
 addressable over HTTP. Not meant to run as a real multi-user production
 service: no auth, no persistence, no session expiry - it's a demo surface.
+
+In production (e.g. Render - see render.yaml), this module is imported by
+a real WSGI server (`gunicorn server:app`), which never executes the
+`if __name__ == "__main__"` block below - that block is only for local
+`python server.py` runs. `sessions` being an in-process dict means a
+platform restart/redeploy/free-tier spin-down clears all active
+conversations, same as the CLI losing state when the process exits.
 """
 
+import os
 import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -115,6 +123,22 @@ def new_session():
     return jsonify({"session_id": session_id, "progress": _progress_steps(agent)})
 
 
+@app.get("/api/session/<session_id>")
+def get_session(session_id):
+    """Lets the client resume a session across a page refresh (sessionId
+    cached client-side in sessionStorage - see web/index.html) instead of
+    always starting a new Agent(). Only ever returns the same
+    non-sensitive progress projection /api/chat already exposes, computed
+    fresh from the real Agent - never cached, so a session that no longer
+    exists here (server restarted, Render free-tier spin-down) correctly
+    404s instead of a stale client-side guess pretending it's still alive.
+    """
+    agent = sessions.get(session_id)
+    if agent is None:
+        return jsonify({"error": "unknown session_id"}), 404
+    return jsonify({"session_id": session_id, "progress": _progress_steps(agent)})
+
+
 @app.post("/api/chat")
 def chat():
     body = request.get_json(silent=True) or {}
@@ -131,4 +155,8 @@ def chat():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # 0.0.0.0 + $PORT: what Render (and most PaaS platforms) require for
+    # local `python server.py` to also work unmodified in that environment.
+    # Real deployments should still run behind gunicorn (see render.yaml),
+    # not this dev server.
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
