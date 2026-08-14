@@ -100,6 +100,16 @@ def _call_provider(
     if not rephrased:
         return None
 
+    # Defensive: the model is told to reword only the text inside
+    # <<<...>>> (see _build_user_content) but occasionally echoes the
+    # delimiters themselves back as part of its output instead of just
+    # the reworded text - confirmed live, consistently reproducing on
+    # first-turn messages specifically. Never trust the raw completion to
+    # be clean of the markup used to frame the request to it.
+    rephrased = rephrased.replace("<<<", "").replace(">>>", "").strip()
+    if not rephrased:
+        return None
+
     if not _facts_preserved(template_message, rephrased):
         logger.warning("rephrasing from %s dropped a required fact", base_url)
         return None

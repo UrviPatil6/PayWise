@@ -522,3 +522,88 @@ def test_malformed_account_id_does_not_reach_tone_hint_or_tracking(mock_lookup, 
     message, tone_hint = agent._process_turn("some malicious-looking reply")
     assert tone_hint is None
     assert agent.session.last_account_id_attempted == "ACC9999"  # malformed value never tracked or used
+
+
+def test_account_id_state_captures_other_fields_without_burning_a_retry(mock_lookup):
+    # Regression test: a message containing digits fully explained by
+    # another recognized field (a DOB volunteered before an account ID is
+    # even given) must not be treated as a failed account-ID attempt - it
+    # should be captured silently for later use and acknowledged, not
+    # burn a retry that a genuinely garbled account-ID attempt should.
+    agent = Agent()
+    r = agent.next("14th May 1990")
+    assert agent.session.account_lookup_attempts == 0
+    assert agent.session.claimed_dob == "1990-05-14"
+    assert "account id" in r["message"].lower()
+    assert "date of birth" in r["message"].lower()
+
+    # A message that's genuinely just noise (no recognized field at all)
+    # still correctly costs a retry - this isn't a blanket free pass.
+    agent2 = Agent()
+    agent2.next("65")  # too short to be a plausible account id, no other field either
+    assert agent2.session.account_lookup_attempts == 1
+
+
+def test_bare_acknowledgment_and_real_greeting_get_different_tone_hints(mock_lookup):
+    # Regression test: "no"/"yes"/"ok" were getting the exact same
+    # tone_hint wording as "hi"/"thanks" ("acknowledge that greeting,
+    # pleasantry, or thanks") even though there's nothing to acknowledge -
+    # the phrasing step had nothing real to work with and just produced a
+    # generic non-answer.
+    agent1 = Agent()
+    _, tone_hint_no = agent1._process_turn("no")
+    assert tone_hint_no is not None and "acknowledgment" in tone_hint_no.lower()
+
+    agent2 = Agent()
+    _, tone_hint_hi = agent2._process_turn("hi")
+    assert tone_hint_hi is not None and "greeting" in tone_hint_hi.lower()
+
+
+def test_card_details_state_never_calls_the_llm(mock_lookup, monkeypatch):
+    # Regression test / security fix: raw card text (which can contain a
+    # real card number and CVV) must never be sent to a third-party LLM
+    # provider. AWAIT_CARD_DETAILS always uses the regex parser only, even
+    # when the LLM is otherwise enabled and working.
+    from models import ExtractedFields
+
+    monkeypatch.setattr("agent.LLM_ENABLED", True)
+    monkeypatch.setattr("agent.naturalize", lambda message, state, tone_hint=None, checklist=None: None)
+    calls = []
+    monkeypatch.setattr(
+        "agent.extract_fields_llm",
+        lambda text, state, session_context: calls.append(state) or ExtractedFields(),
+    )
+    agent = Agent()
+    agent.next("ACC1001")
+    agent.next("Nithin Jain")
+    agent.next("DOB is 1990-05-14")
+    agent.next("pay 500")
+    calls_before_card_step = len(calls)
+
+    agent.next("card number 4532 0151 1283 0366, expiry 12/27, cvv 123")
+    assert len(calls) == calls_before_card_step  # extract_fields_llm was NOT called for this turn
+    assert "extract:regex_only_card_details" in agent.session.action_log
+    assert agent.session.state == ConversationState.CLOSED  # payment still completed via regex alone
+
+
+def test_card_data_cleared_on_verification_exhaustion_not_just_payment(mock_lookup):
+    # Regression test: card_number/cvv/expiry volunteered early (before
+    # verification) used to remain in memory indefinitely if the
+    # conversation closed via any path *other* than an actual payment
+    # attempt (e.g. exhausting verification retries) -
+    # _handle_card_details's own clear_card_details() calls only ever ran
+    # after a real payment attempt. agent.next() now clears card fields
+    # on every transition to CLOSED, regardless of which path caused it.
+    agent = Agent()
+    agent.next("ACC1001, card 4532 0151 1283 0366 expiry 12/27 cvv 123")
+    assert agent.session.card_number is not None  # captured, as designed
+
+    for _ in range(3):
+        agent.next("Someone Else")
+        agent.next("DOB is 2000-01-01")
+
+    assert agent.session.state == ConversationState.CLOSED
+    assert agent.session.card_number is None
+    assert agent.session.cvv is None
+    assert agent.session.expiry_month is None
+    assert agent.session.expiry_year is None

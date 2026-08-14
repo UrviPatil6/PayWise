@@ -175,7 +175,19 @@ def _extract_full_name(text: str, state: ConversationState) -> Optional[str]:
             return _clean_name(match.group(1))
 
     # "it's Nithin, Nithin Jain" - nickname then full name after a comma.
+    # Tried before the plain "it's X" pattern below, or that pattern would
+    # only ever capture "Nithin" here and never reach the fuller name.
     match = re.search(r"it'?s\s+[A-Za-z]+,\s*([A-Za-z][A-Za-z .'\-]*)", text, re.IGNORECASE)
+    if match:
+        return _clean_name(match.group(1))
+
+    # "it's Nithin" / "its Nithin" - the same name-introduction phrase as
+    # "i'm"/"i am" above, just not recognized there since "it's" is also
+    # the prefix of the nickname-comma pattern just above, which has to
+    # run first. Regression: this used to fall through to the bare-reply
+    # fallback below and get extracted as "its Nithin" literally, filler
+    # word included, which could never match a real account name.
+    match = re.search(r"it'?s\s+([A-Za-z][A-Za-z .'\-]*)", text, re.IGNORECASE)
     if match:
         return _clean_name(match.group(1))
 
@@ -411,12 +423,17 @@ def _extract_expiry(text: str) -> Tuple[Optional[int], Optional[int]]:
 
     # "expires December 2027" - a bare month-name + year with no leading
     # day number, which is what tells this apart from a DOB like "14th May
-    # 1990" (DOB always has a day digit before the month name).
+    # 1990" (DOB always has a day digit before the month name). Strip
+    # trailing whitespace *before* the ordinal suffix, or the suffix is
+    # never reached - "14th " otherwise stops at the space and never sees
+    # the "th", silently misreading a DOB as an expiry (regression: this
+    # exact bug let a plain "14th may 1990" set a bogus expiry_month/year
+    # with zero card context anywhere in the conversation).
     match = re.search(r"\b([A-Za-z]+)\s+(\d{4})\b", text)
     if match:
         month = MONTHS.get(match.group(1).lower())
         preceding = text[: match.start()]
-        if month and not re.search(r"\d\s*$", preceding.rstrip("stndrh")):
+        if month and not re.search(r"\d\s*$", preceding.rstrip().rstrip("stndrh")):
             return month, int(match.group(2))
 
     return None, None

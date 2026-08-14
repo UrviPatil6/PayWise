@@ -392,6 +392,15 @@
   let sessionId = null;
   let lastStepStatuses = {};
 
+  // Shown instantly on a fresh session (and on resuming one where nothing's
+  // been said yet) - never sent through the agent. The opening line is
+  // always functionally the same ("share your account ID to get started"),
+  // so there's nothing for an LLM round-trip to decide here; paying several
+  // seconds of naturalization latency for a fixed message would be pure
+  // waste. The user's first real message is still the true first turn as
+  // far as the agent is concerned (see agent.py's first_turn handling).
+  const STATIC_GREETING = "Hi! 👋 I can help you look up your account, verify your identity, and take care of your payment right here. Whenever you're ready, just share your account ID and we'll get started.";
+
   function stepIcon(status) {
     if (status === 'done') return checkSVG;
     if (status === 'failed') return xSVG;
@@ -496,7 +505,12 @@
       messagesEl.innerHTML = '<div class="date-chip">Today</div>';
       lastStepStatuses = {};
       renderProgress(data.progress);
-      addMessage('Welcome back — continuing where you left off.', 'bot');
+      const transcript = data.transcript || [];
+      if (transcript.length === 0) {
+        addMessage(STATIC_GREETING, 'bot');
+      } else {
+        transcript.forEach(entry => addMessage(entry.text, entry.sender));
+      }
       return true;
     } catch (err) {
       return false;
@@ -512,8 +526,9 @@
     sessionId = data.session_id;
     sessionStorage.setItem('sessionId', sessionId);
     renderProgress(data.progress);
+    addMessage(STATIC_GREETING, 'bot');
     setBusy(false);
-    await sendToAgent('Hi');
+    inputEl.focus();
   }
 
   async function sendToAgent(text) {

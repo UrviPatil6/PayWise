@@ -92,6 +92,20 @@ def test_empty_response_degrades_to_none(monkeypatch):
     assert result is None
 
 
+def test_leaked_delimiter_markers_are_stripped_from_the_response(monkeypatch):
+    # Regression test for a real, consistently-reproducing bug: the model
+    # is told to reword only the text inside <<<...>>> (see
+    # _build_user_content), but sometimes echoes the delimiters back as
+    # part of its own output instead of just the reworded text -
+    # confirmed live on first-turn messages specifically. The raw
+    # completion must never be trusted to be clean of the markup used to
+    # frame the request to it.
+    _install_fake_openai(monkeypatch, content="<<<Hi there! Could you share your account ID?>>>")
+    result = responder.naturalize("Please share your account ID to get started.", None)
+    assert result == "Hi there! Could you share your account ID?"
+    assert "<<<" not in result and ">>>" not in result
+
+
 def test_falls_back_to_second_provider_when_primary_fails(monkeypatch):
     monkeypatch.setattr("responder.LLM_BASE_URL", "https://primary.example/v1")
     monkeypatch.setattr("responder.LLM_FALLBACK_ENABLED", True)

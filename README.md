@@ -82,6 +82,21 @@ python server.py
 
 Then open `http://127.0.0.1:5000`. It's a thin Flask front door onto the exact same `Agent.next()` call the CLI uses — not a separate interface, no auth, no persistence, a demo surface.
 
+### Deploy the web UI to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/UrviPatil6/PayWise)
+
+`render.yaml` in the repo root defines the service — Render reads it automatically via **New + → Blueprint**, or click the button above. It runs `server.py` behind `gunicorn` (Flask's own dev server isn't meant for production traffic) on the free plan.
+
+Manual setup instead, if you'd rather not use the Blueprint:
+
+1. **New + → Web Service** → connect this GitHub repo
+2. **Build command**: `pip install -r requirements.txt`
+3. **Start command**: `gunicorn server:app`
+4. Everything else is optional — see [Configuration](#configuration) below. Only set `GROQ_API_KEY` (or `LLM_API_KEY`, etc.) in Render's **Environment** tab if you want the LLM-phrased path; the deployed agent runs fully on its deterministic fallback without it.
+
+Two things worth knowing before you rely on it: the free plan spins down after inactivity, and `sessions` (§ [Project layout](#project-layout)) is an in-process dict — either one clears every active conversation on restart, same as the CLI losing state when the process exits. Fine for a demo, not for anything that needs conversations to survive a redeploy.
+
 ---
 
 ## Configuration

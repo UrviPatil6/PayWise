@@ -57,6 +57,20 @@ def test_full_name_variants():
     assert extract_fields("Nithin Jain", IDENTITY).full_name == "Nithin Jain"
 
 
+def test_full_name_its_prefix_strips_the_filler_word():
+    # Regression test for a real bug: "it's"/"its" wasn't recognized as a
+    # name-introduction phrase outside the comma-separated nickname
+    # pattern ("it's Nithin, Nithin Jain"), so a bare "its Nithin" fell
+    # through to the AWAIT_IDENTITY bare-reply fallback and was extracted
+    # literally, filler word included ("its Nithin") - which could never
+    # match a real account name. The comma pattern must still take
+    # priority so "it's Nithin, Nithin Jain" keeps extracting the fuller
+    # name, not just "Nithin".
+    assert extract_fields("its Nithin", IDENTITY).full_name == "Nithin"
+    assert extract_fields("it's Nithin", IDENTITY).full_name == "Nithin"
+    assert extract_fields("it's Nithin, Nithin Jain", IDENTITY).full_name == "Nithin Jain"
+
+
 def test_full_name_single_word_reply():
     # Regression test: a single-word reply ("urvi") used to be silently
     # dropped (the fallback required 2+ words), which meant the agent
@@ -110,6 +124,24 @@ def test_dob_variants():
     assert extract_fields("DOB is May 14, 90", IDENTITY).dob == "1990-05-14"
     assert extract_fields("14-05-1990", IDENTITY).dob == "1990-05-14"
     assert extract_fields("1990-05-14", IDENTITY).dob == "1990-05-14"
+
+
+def test_dob_shaped_dates_are_never_misread_as_an_expiry():
+    # Regression test for a real bug: _extract_expiry's guard against a
+    # DOB like "14th May 1990" being misread as an expiry only worked when
+    # there was no ordinal suffix ("14 May 1990") - the guard stripped the
+    # "th"/"st"/"nd"/"rd" suffix *after* checking for trailing whitespace,
+    # so it never actually reached the suffix and the guard silently did
+    # nothing. A plain DOB with an ordinal suffix and zero card context
+    # anywhere in the message or conversation must never set an expiry.
+    for phrase in ("14th May 1990", "1st January 1990", "2nd March 1990", "3rd April 1990"):
+        result = extract_fields(phrase, IDENTITY)
+        assert result.expiry_month is None and result.expiry_year is None, phrase
+        assert result.dob is not None, phrase  # the DOB itself must still extract correctly
+
+    # A genuine expiry statement (no leading day digit) must still work.
+    month, year = extract_fields("expires December 2027", CARD).expiry_month, extract_fields("expires December 2027", CARD).expiry_year
+    assert (month, year) == (12, 2027)
 
 
 def test_aadhaar_and_pincode_variants():

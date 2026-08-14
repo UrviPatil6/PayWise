@@ -35,6 +35,14 @@ app = Flask(__name__, static_folder="web", static_url_path="")
 # of state and nothing more.
 sessions: dict[str, Agent] = {}
 
+# session_id -> [{"sender": "user"|"bot", "text": str}, ...]. Separate from
+# Agent/Session on purpose: Session holds business state (what's been
+# verified, collected, etc.), not display history - the chat transcript is
+# purely a UI concern, needed only so a page refresh can rebuild what was
+# on screen (see GET /api/session/<id>), same in-memory/no-persistence
+# scope as `sessions` above.
+transcripts: dict[str, list] = {}
+
 
 def _progress_steps(agent: Agent) -> list:
     """
@@ -81,16 +89,16 @@ def _progress_steps(agent: Agent) -> list:
 
     steps.append({
         "key": "balance",
-        "title": "Balance Retrieved",
+        "title": "Balance",
         "status": "done" if s.verified else "pending",
-        "detail": f"Outstanding balance ₹{s.account.balance:,.2f}" if s.verified else "Awaiting identity verification",
+        "detail": f"₹{s.account.balance:,.2f} outstanding" if s.verified else "Available after verification",
     })
 
     payment_done = s.transaction_id is not None
     payment_active = s.verified and not payment_done and not closed
     steps.append({
         "key": "payment",
-        "title": "Payment",
+        "title": "Payment Details",
         "status": "done" if payment_done else ("failed" if closed and s.verified else ("active" if payment_active else "pending")),
         "detail": (
             f"₹{s.payment_amount:,.2f} charged" if payment_done
@@ -120,6 +128,7 @@ def new_session():
     session_id = uuid.uuid4().hex
     agent = Agent()
     sessions[session_id] = agent
+    transcripts[session_id] = []
     return jsonify({"session_id": session_id, "progress": _progress_steps(agent)})
 
 
@@ -127,16 +136,22 @@ def new_session():
 def get_session(session_id):
     """Lets the client resume a session across a page refresh (sessionId
     cached client-side in sessionStorage - see web/index.html) instead of
-    always starting a new Agent(). Only ever returns the same
-    non-sensitive progress projection /api/chat already exposes, computed
-    fresh from the real Agent - never cached, so a session that no longer
+    always starting a new Agent(). Progress is computed fresh from the
+    real Agent every time, never cached, so a session that no longer
     exists here (server restarted, Render free-tier spin-down) correctly
     404s instead of a stale client-side guess pretending it's still alive.
+    The transcript is what lets the client rebuild the actual chat
+    bubbles on resume, not just the sidebar - it's plain display text
+    already shown to this same user once, nothing new is exposed.
     """
     agent = sessions.get(session_id)
     if agent is None:
         return jsonify({"error": "unknown session_id"}), 404
-    return jsonify({"session_id": session_id, "progress": _progress_steps(agent)})
+    return jsonify({
+        "session_id": session_id,
+        "progress": _progress_steps(agent),
+        "transcript": transcripts.get(session_id, []),
+    })
 
 
 @app.post("/api/chat")
@@ -149,7 +164,13 @@ def chat():
     if agent is None:
         return jsonify({"error": "unknown session_id - call /api/session first"}), 400
 
+    transcript = transcripts.setdefault(session_id, [])
+    if user_input.strip():
+        transcript.append({"sender": "user", "text": user_input})
+
     result = agent.next(user_input)
+    transcript.append({"sender": "bot", "text": result["message"]})
+
     result["progress"] = _progress_steps(agent)
     return jsonify(result)
 

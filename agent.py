@@ -55,6 +55,20 @@ def _money(value: Decimal) -> str:
     return f"₹{value:,.2f}"
 
 
+# Bare replies that the extractor tags "small_talk" (see extractor.py's
+# _NAME_STOPWORDS) but that aren't actually a greeting/pleasantry/thanks -
+# a bare "no" has nothing to warmly acknowledge, so the same tone_hint
+# wording used for "hi"/"thanks" just produces a generic non-answer.
+# Phrasing-only distinction, checked against the raw text (not a new
+# intent value) - doesn't change what gets extracted, only how the
+# phrasing step is told to handle it.
+_BARE_ACKNOWLEDGMENT_WORDS = {
+    "yes", "no", "ok", "okay", "sure", "yeah", "yep", "nope",
+    "got it", "gotcha", "alright", "cool",
+    "please", "what", "why", "how", "wait", "hmm", "um", "uh", "idk", "maybe",
+}
+
+
 class Agent:
     def __init__(self):
         self.session = Session()
@@ -97,6 +111,15 @@ class Agent:
 
         if not was_already_closed and self.session.state == ConversationState.CLOSED:
             self.session.closing_message = message
+            # Card fields can be populated without ever reaching a payment
+            # call - volunteered early, then verification/lookup exhausts
+            # its retry limit, or the user cancels - _handle_card_details's
+            # own clear_card_details() calls only cover closures that went
+            # through an actual payment attempt. Centralizing it here
+            # instead of adding it to every individual closing branch means
+            # no raw card data can survive into a closed session on any
+            # path, including one added later that forgets to call it.
+            self.session.clear_card_details()
 
         return {"message": message}
 
@@ -122,10 +145,19 @@ class Agent:
 
         tone_hints = []
         if extracted.intent == "small_talk":
-            tone_hints.append(
-                "The customer's message included a greeting, pleasantry, or thanks - briefly "
-                "and warmly acknowledge that before/alongside the rest of your reply."
-            )
+            bare_lower = user_input.strip().lower().rstrip("!.?,;: ")
+            if bare_lower in _BARE_ACKNOWLEDGMENT_WORDS:
+                tone_hints.append(
+                    "The customer gave a short acknowledgment (like yes/no/okay) rather than a "
+                    "greeting - there's no specific question of yours for it to answer yet, so "
+                    "respond naturally and warmly while moving the conversation forward, without "
+                    "assuming it answered something you didn't ask."
+                )
+            else:
+                tone_hints.append(
+                    "The customer's message included a greeting, pleasantry, or thanks - briefly "
+                    "and warmly acknowledge that before/alongside the rest of your reply."
+                )
 
         # Gated on AWAIT_ACCOUNT_ID: once an account is found there's no path to switch it (§3 finding 11).
         # Format-validated before use: extracted.account_id hasn't been through
@@ -209,13 +241,24 @@ class Agent:
         return session.closing_message
 
     def _extract(self, user_input: str, state: ConversationState) -> ExtractedFields:
-        """LLM-first; extractor.py's regex parser is the deterministic fallback."""
-        if LLM_ENABLED:
+        """LLM-first; extractor.py's regex parser is the deterministic
+        fallback. Card details (AWAIT_CARD_DETAILS) always go through the
+        regex parser only, never the LLM: the raw message here can contain
+        a real card number and CVV, and there's no reason to send that to
+        a third-party API when regex already covers this narrow,
+        structured domain (a number, MM/YY, a 3-4 digit CVV) as reliably
+        as an LLM would - see FINDINGS.md for the full rationale. Stronger
+        security story than "the schema sent back is filtered" - sensitive
+        payment credentials never leave the process at all."""
+        card_details_state = state == ConversationState.AWAIT_CARD_DETAILS
+        if LLM_ENABLED and not card_details_state:
             llm_result = extract_fields_llm(user_input, state, self._llm_session_context())
             if llm_result is not None:
                 self.session.action_log.append("extract:llm")
                 return self._cross_check_with_regex(llm_result, user_input, state)
             self.session.action_log.append("extract:llm_failed_fallback_to_rules")
+        elif LLM_ENABLED and card_details_state:
+            self.session.action_log.append("extract:regex_only_card_details")
 
         return extract_fields(user_input, state)
 
@@ -346,8 +389,34 @@ class Agent:
             return session.closing_message
 
         if not extracted.account_id:
-            # No digits at all (e.g. "Hi") doesn't cost a retry attempt.
-            if not any(ch.isdigit() for ch in user_input):
+            # A message can contain digits without being a failed attempt
+            # at an account ID - e.g. a DOB volunteered before the account
+            # is even found. Extraction still captures it (see
+            # _merge_extracted, unconditional); the only question here is
+            # whether *this* message looks like an account-ID attempt that
+            # didn't parse, which should cost a retry, versus other
+            # information that happens to contain digits, which shouldn't.
+            other_info_given = any([
+                extracted.full_name, extracted.dob, extracted.aadhaar_last4, extracted.pincode,
+                extracted.payment_amount is not None, extracted.full_balance_requested,
+                extracted.card_number, extracted.cvv, extracted.expiry_month, extracted.cardholder_name,
+            ])
+            if not any(ch.isdigit() for ch in user_input) or other_info_given:
+                if other_info_given:
+                    captured = []
+                    if extracted.full_name:
+                        captured.append("your name")
+                    if extracted.dob:
+                        captured.append("your date of birth")
+                    if extracted.aadhaar_last4:
+                        captured.append("your Aadhaar details")
+                    if extracted.pincode:
+                        captured.append("your pincode")
+                    if extracted.payment_amount is not None or extracted.full_balance_requested:
+                        captured.append("the amount you'd like to pay")
+                    if extracted.card_number or extracted.cvv or extracted.expiry_month or extracted.cardholder_name:
+                        captured.append("your card details")
+                    return f"Thanks - I've noted {', '.join(captured)}. Could you also share your account ID to get started?"
                 return "Please share your account ID to get started."
             session.account_lookup_attempts += 1
             if session.account_lookup_attempts >= MAX_ACCOUNT_LOOKUP_ATTEMPTS:
